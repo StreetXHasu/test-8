@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Exception\ApiException;
+use App\Image\ImageConstraints;
 use App\Image\ImagePresenter;
 use App\Image\ImageService;
 use App\Image\UploadedImageInspector;
@@ -15,9 +16,12 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Attribute\MapUploadedFile;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Requirement\Requirement;
 use Symfony\Component\Uid\Uuid;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[Route('/api/images')]
 final class ImageController
@@ -47,16 +51,37 @@ final class ImageController
             ),
         ),
         responses: [
-            new OA\Response(response: 201, description: 'Файл сохранён'),
-            new OA\Response(response: 200, description: 'Этот пользователь уже загружал такое изображение'),
-            new OA\Response(response: 401, description: 'Нет или неверный токен'),
-            new OA\Response(response: 413, description: 'Файл больше 5 МБ'),
-            new OA\Response(response: 422, description: 'Пустой файл или не PNG/JPEG'),
+            new OA\Response(response: 201, description: 'Файл сохранён', content: new OA\JsonContent(ref: '#/components/schemas/Image')),
+            new OA\Response(response: 200, description: 'Этот пользователь уже загружал такое изображение', content: new OA\JsonContent(ref: '#/components/schemas/Image')),
+            new OA\Response(response: 401, description: 'Нет или неверный токен', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 413, description: 'Файл больше 5 МБ', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 422, description: 'Пустой файл или не PNG/JPEG', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
-    public function upload(Request $request): JsonResponse
-    {
-        $file = $request->files->get('file');
+    public function upload(
+        #[MapUploadedFile(
+            constraints: new Assert\Image(
+                maxSize: ImageConstraints::MAX_BYTES,
+                mimeTypes: ['image/png', 'image/jpeg'],
+                maxWidth: ImageConstraints::MAX_DIMENSION,
+                maxHeight: ImageConstraints::MAX_DIMENSION,
+                maxPixels: ImageConstraints::MAX_PIXELS,
+                detectCorrupted: true,
+                disallowEmptyMessage: 'File is empty',
+                uploadIniSizeErrorMessage: 'File is larger than 5 MB',
+                uploadFormSizeErrorMessage: 'File is larger than 5 MB',
+                maxSizeMessage: 'File is larger than 5 MB',
+                mimeTypesMessage: 'Only PNG and JPEG images are allowed',
+                maxWidthMessage: 'Image dimensions are too large',
+                maxHeightMessage: 'Image dimensions are too large',
+                maxPixelsMessage: 'Image dimensions are too large',
+                sizeNotDetectedMessage: 'Image cannot be decoded',
+                corruptedMessage: 'Image cannot be decoded',
+            ),
+            name: 'file',
+        )]
+        ?UploadedFile $file = null,
+    ): JsonResponse {
         if (!$file instanceof UploadedFile) {
             throw new ApiException('File is required', 422);
         }
@@ -78,9 +103,9 @@ final class ImageController
             new OA\QueryParameter(name: 'cursor', description: 'Курсор следующей страницы', schema: new OA\Schema(type: 'string')),
         ],
         responses: [
-            new OA\Response(response: 200, description: 'Страница списка'),
-            new OA\Response(response: 401, description: 'Нет или неверный токен'),
-            new OA\Response(response: 422, description: 'Некорректные limit или cursor'),
+            new OA\Response(response: 200, description: 'Страница списка', content: new OA\JsonContent(ref: '#/components/schemas/ImagePage')),
+            new OA\Response(response: 401, description: 'Нет или неверный токен', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 422, description: 'Некорректные limit или cursor', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
     public function list(Request $request): JsonResponse
@@ -99,18 +124,31 @@ final class ImageController
         ],
         responses: [
             new OA\Response(response: 200, description: 'Тело файла', content: new OA\MediaType(mediaType: 'image/webp')),
-            new OA\Response(response: 401, description: 'Нет или неверный токен'),
-            new OA\Response(response: 404, description: 'Нет такого изображения у текущего пользователя'),
+            new OA\Response(response: 304, description: 'Не изменилось'),
+            new OA\Response(response: 401, description: 'Нет или неверный токен', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 404, description: 'Нет такого изображения у текущего пользователя', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
-    public function show(string $id): Response
+    public function show(Request $request, string $id): Response
     {
         $content = $this->images->read($this->user(), Uuid::fromString($id));
+        $etag = '"'.$content->etag.'"';
+        if ($etag === $request->headers->get('If-None-Match')) {
+            return new Response(status: Response::HTTP_NOT_MODIFIED, headers: [
+                'ETag' => $etag,
+                'Cache-Control' => 'private, max-age=3600',
+            ]);
+        }
 
-        return new Response($content->bytes, Response::HTTP_OK, [
+        return new StreamedResponse(static function () use ($content): void {
+            while (!$content->stream->eof()) {
+                echo $content->stream->read(8192);
+            }
+        }, Response::HTTP_OK, [
             'Content-Type' => $content->mimeType,
             'Content-Disposition' => 'inline; filename="'.$content->filename.'"',
-            'Content-Length' => (string) \strlen($content->bytes),
+            'Content-Length' => (string) $content->sizeBytes,
+            'ETag' => $etag,
             'Cache-Control' => 'private, max-age=3600',
         ]);
     }
@@ -124,8 +162,8 @@ final class ImageController
         ],
         responses: [
             new OA\Response(response: 204, description: 'Удалено'),
-            new OA\Response(response: 401, description: 'Нет или неверный токен'),
-            new OA\Response(response: 404, description: 'Нет такого изображения у текущего пользователя'),
+            new OA\Response(response: 401, description: 'Нет или неверный токен', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 404, description: 'Нет такого изображения у текущего пользователя', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
     public function delete(string $id): Response

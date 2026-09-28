@@ -39,6 +39,7 @@ abstract class ApiTestCase extends WebTestCase
         $manager = $this->manager();
         $manager->getConnection()->executeStatement('TRUNCATE TABLE images, image_blobs, users RESTART IDENTITY CASCADE');
         $manager->clear();
+        static::getContainer()->get('cache.rate_limiter')->clear();
     }
 
     protected function manager(): EntityManagerInterface
@@ -106,5 +107,24 @@ abstract class ApiTestCase extends WebTestCase
             'HTTP_AUTHORIZATION' => 'Bearer '.$token,
             'HTTP_ACCEPT' => 'application/json',
         ]);
+    }
+
+    protected function responseBody(): string
+    {
+        $internal = $this->client->getInternalResponse()->getContent();
+        if ('' !== $internal) {
+            return $internal;
+        }
+
+        $response = $this->client->getResponse();
+        $content = $response->getContent();
+        if (\is_string($content) && '' !== $content) {
+            return $content;
+        }
+
+        ob_start();
+        $response->sendContent();
+
+        return (string) ob_get_clean();
     }
 }

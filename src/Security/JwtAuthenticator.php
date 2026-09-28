@@ -28,10 +28,10 @@ final class JwtAuthenticator extends AbstractAuthenticator implements Authentica
     ) {
     }
 
-    public function supports(Request $request): ?bool
+    public function supports(Request $request): bool
     {
         $path = $request->getPathInfo();
-        if (str_starts_with($path, '/api/register') || str_starts_with($path, '/api/login') || str_starts_with($path, '/api/doc')) {
+        if (\in_array($path, ['/api/register', '/api/login'], true) || str_starts_with($path, '/api/doc')) {
             return false;
         }
 

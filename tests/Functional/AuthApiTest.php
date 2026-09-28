@@ -94,6 +94,16 @@ final class AuthApiTest extends ApiTestCase
         self::assertSame(201, $this->client->getResponse()->getStatusCode());
     }
 
+    public function testRegisterMaskIsExactAndSuffixesStayProtected(): void
+    {
+        $this->client->request('POST', '/api/register-foo', server: [
+            'CONTENT_TYPE' => 'application/json',
+        ], content: '{"email":"x@example.com","password":"password1"}');
+        // Без якоря $ путь был бы PUBLIC_ACCESS; маршрута нет — 404, и это не регистрация.
+        self::assertSame(404, $this->client->getResponse()->getStatusCode());
+        self::assertNull($this->manager()->getRepository(\App\Entity\User::class)->findOneBy(['email' => 'x@example.com']));
+    }
+
     public function testProtectedRouteRejectsMissingExpiredAndDeletedUsers(): void
     {
         $this->client->request('GET', '/api/images');
@@ -122,5 +132,24 @@ final class AuthApiTest extends ApiTestCase
         $this->client->request('GET', '/api/images', server: ['HTTP_AUTHORIZATION' => 'Bearer '.$token]);
         self::assertSame(401, $this->client->getResponse()->getStatusCode());
         self::assertSame('Unauthorized', $this->responseJson()['error']);
+    }
+
+    public function testLoginIsRateLimited(): void
+    {
+        for ($attempt = 0; $attempt < 5; ++$attempt) {
+            $this->requestJson('POST', '/api/login', [
+                'email' => 'limited@example.com',
+                'password' => 'wrong-password',
+            ]);
+            self::assertSame(401, $this->client->getResponse()->getStatusCode());
+        }
+
+        $this->requestJson('POST', '/api/login', [
+            'email' => 'limited@example.com',
+            'password' => 'wrong-password',
+        ]);
+        self::assertSame(429, $this->client->getResponse()->getStatusCode());
+        self::assertSame('Too many attempts', $this->responseJson()['error']);
+        self::assertNotNull($this->client->getResponse()->headers->get('Retry-After'));
     }
 }

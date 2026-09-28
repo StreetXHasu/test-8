@@ -48,7 +48,7 @@ final class ImageProcessingTest extends TestCase
         self::assertSame('jpg', (new CompressedImage('a', 'image/jpeg', 1, 1))->extension());
     }
 
-    public function testCompressorConvertsAPngAndRejectsGarbageOrHugeDimensions(): void
+    public function testCompressorConvertsAPngAndRejectsGarbage(): void
     {
         $compressor = new GdImageCompressor(new SmallerImageChooser());
         $png = (string) file_get_contents(SampleImages::png(40, 80, 80));
@@ -57,20 +57,41 @@ final class ImageProcessingTest extends TestCase
         self::assertLessThan(\strlen($png), \strlen($compressed->bytes));
         self::assertSame(80, $compressed->width);
 
-        $tiny = new GdImageCompressor(new SmallerImageChooser(), 1);
-        try {
-            $tiny->compress($png, 'image/png');
-            self::fail('Large dimensions were accepted');
-        } catch (ApiException $exception) {
-            self::assertSame(422, $exception->statusCode);
-            self::assertSame('Image dimensions are too large', $exception->getMessage());
-        }
-
         try {
             $compressor->compress('not-an-image', 'image/png');
             self::fail('Garbage was decoded');
         } catch (ApiException $exception) {
             self::assertSame('Image cannot be decoded', $exception->getMessage());
         }
+    }
+
+    public function testInspectorRejectsUnreadableAndUnknownMime(): void
+    {
+        $inspector = new \App\Image\UploadedImageInspector(new FilenameSanitizer());
+        $read = new \ReflectionMethod(\App\Image\UploadedImageInspector::class, 'readContents');
+        try {
+            $read->invoke($inspector, '/no/such/upload.bin');
+            self::fail('Missing file was readable');
+        } catch (ApiException $exception) {
+            self::assertSame(400, $exception->statusCode);
+        }
+
+        $mime = new \ReflectionMethod(\App\Image\UploadedImageInspector::class, 'detectMime');
+        try {
+            $mime->invoke($inspector, '/no/such/upload.bin');
+            self::fail('Missing file had a mime type');
+        } catch (ApiException $exception) {
+            self::assertSame(422, $exception->statusCode);
+        }
+    }
+
+    public function testUserIdentifierRejectsEmptyEmail(): void
+    {
+        $user = (new \ReflectionClass(\App\Entity\User::class))->newInstanceWithoutConstructor();
+        $email = new \ReflectionProperty(\App\Entity\User::class, 'email');
+        $email->setValue($user, '');
+
+        $this->expectException(\LogicException::class);
+        $user->getUserIdentifier();
     }
 }

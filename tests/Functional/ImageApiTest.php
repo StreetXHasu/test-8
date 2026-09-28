@@ -41,9 +41,16 @@ final class ImageApiTest extends ApiTestCase
         ]);
         self::assertSame(200, $this->client->getResponse()->getStatusCode());
         self::assertSame('image/webp', $this->client->getResponse()->headers->get('Content-Type'));
-        $body = (string) $this->client->getResponse()->getContent();
+        self::assertSame('"'.$created['contentHash'].'"', $this->client->getResponse()->headers->get('ETag'));
+        $body = $this->responseBody();
         self::assertStringStartsWith('RIFF', $body);
         self::assertSame('WEBP', substr($body, 8, 4));
+
+        $this->client->request('GET', '/api/images/'.$created['id'], server: [
+            'HTTP_AUTHORIZATION' => 'Bearer '.$token,
+            'HTTP_IF_NONE_MATCH' => '"'.$created['contentHash'].'"',
+        ]);
+        self::assertSame(304, $this->client->getResponse()->getStatusCode());
 
         $this->manager()->clear();
         $blob = $this->manager()->find(ImageBlob::class, $created['contentHash']);
@@ -193,7 +200,7 @@ final class ImageApiTest extends ApiTestCase
         $this->client->request('POST', '/api/images', files: [
             'file' => new UploadedFile($png, 'a.png', 'image/png', \UPLOAD_ERR_PARTIAL, true),
         ], server: ['HTTP_AUTHORIZATION' => 'Bearer '.$token]);
-        self::assertSame(400, $this->client->getResponse()->getStatusCode());
+        self::assertSame(422, $this->client->getResponse()->getStatusCode());
 
         $this->upload($token, SampleImages::bytes(''), 'empty.png');
         self::assertSame(422, $this->client->getResponse()->getStatusCode());
@@ -213,6 +220,10 @@ final class ImageApiTest extends ApiTestCase
         $this->upload($token, SampleImages::bytes("\xFF\xD8\xFF\xE0 not really a jpeg"), 'broken.jpg');
         self::assertSame(422, $this->client->getResponse()->getStatusCode());
         self::assertSame('Image cannot be decoded', $this->responseJson()['error']);
+
+        $this->upload($token, SampleImages::forgedHugePng(), 'huge.png');
+        self::assertSame(422, $this->client->getResponse()->getStatusCode());
+        self::assertSame('Image dimensions are too large', $this->responseJson()['error']);
     }
 
     public function testUnknownUuidIsNotFound(): void

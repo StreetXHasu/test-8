@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace App\Storage;
 
 use Aws\S3\S3Client;
+use Psr\Http\Message\StreamInterface;
 
-final class S3ObjectStorage
+class S3ObjectStorage
 {
     public function __construct(
         private readonly S3Client $client,
@@ -24,14 +25,24 @@ final class S3ObjectStorage
         ]);
     }
 
-    public function get(string $key): string
+    public function getStream(string $key): StreamInterface
     {
         $result = $this->client->getObject([
             'Bucket' => $this->bucket,
             'Key' => $key,
         ]);
 
-        return (string) $result['Body'];
+        /** @var StreamInterface $body */
+        $body = $result['Body'];
+
+        return $body;
+    }
+
+    public function headBucket(): void
+    {
+        $this->client->headBucket([
+            'Bucket' => $this->bucket,
+        ]);
     }
 
     public function delete(string $key): void

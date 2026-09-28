@@ -16,21 +16,32 @@ final class OpenApiTest extends ApiTestCase
         self::assertSame(200, $this->client->getResponse()->getStatusCode());
         self::assertSame('ok', $this->responseJson()['status']);
 
+        $this->client->request('GET', '/health/ready');
+        self::assertSame(200, $this->client->getResponse()->getStatusCode());
+        self::assertSame('ok', $this->responseJson()['status']);
+        self::assertSame('ok', $this->responseJson()['checks']['database']);
+        self::assertSame('ok', $this->responseJson()['checks']['storage']);
+
         $this->client->request('GET', '/api/doc.json');
         self::assertSame(200, $this->client->getResponse()->getStatusCode());
         $spec = $this->responseJson();
         self::assertSame('Image API', $spec['info']['title']);
         self::assertArrayHasKey('/health', $spec['paths']);
+        self::assertArrayHasKey('/health/ready', $spec['paths']);
         self::assertArrayHasKey('/api/register', $spec['paths']);
         self::assertArrayHasKey('/api/login', $spec['paths']);
         self::assertArrayHasKey('/api/images', $spec['paths']);
         self::assertArrayHasKey('/api/images/{id}', $spec['paths']);
         self::assertSame('http', $spec['components']['securitySchemes']['Bearer']['type']);
         self::assertSame('bearer', $spec['components']['securitySchemes']['Bearer']['scheme']);
+        self::assertArrayHasKey('Image', $spec['components']['schemas']);
+        self::assertArrayHasKey('ImagePage', $spec['components']['schemas']);
+        self::assertArrayHasKey('Error', $spec['components']['schemas']);
         self::assertArrayHasKey('post', $spec['paths']['/api/images']);
         self::assertArrayHasKey('get', $spec['paths']['/api/images']);
         self::assertArrayHasKey('delete', $spec['paths']['/api/images/{id}']);
-
+        $createdSchema = $spec['paths']['/api/images']['post']['responses']['201']['content']['application/json']['schema'];
+        self::assertSame('#/components/schemas/Image', $createdSchema['$ref'] ?? null);
         $this->client->request('GET', '/api/doc');
         self::assertSame(200, $this->client->getResponse()->getStatusCode());
         self::assertStringContainsString('swagger', strtolower((string) $this->client->getResponse()->getContent()));

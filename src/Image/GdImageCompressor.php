@@ -7,11 +7,10 @@ namespace App\Image;
 use App\Exception\ApiException;
 use App\Model\CompressedImage;
 
-final class GdImageCompressor
+class GdImageCompressor
 {
     public function __construct(
         private readonly SmallerImageChooser $chooser,
-        private readonly int $maxDimension = 8192,
     ) {
     }
 
@@ -24,9 +23,6 @@ final class GdImageCompressor
 
         $width = imagesx($image);
         $height = imagesy($image);
-        if ($width > $this->maxDimension || $height > $this->maxDimension) {
-            throw new ApiException('Image dimensions are too large', 422);
-        }
 
         imagepalettetotruecolor($image);
         imagealphablending($image, false);

@@ -34,6 +34,17 @@ final class SampleImages
         });
     }
 
+    public static function forgedHugePng(): string
+    {
+        $path = self::png(1, 8, 8);
+        $data = (string) file_get_contents($path);
+        $data = substr_replace($data, pack('N', 10000), 16, 4);
+        $data = substr_replace($data, pack('N', 10000), 20, 4);
+        file_put_contents($path, $data);
+
+        return $path;
+    }
+
     public static function bytes(string $contents): string
     {
         $path = tempnam(sys_get_temp_dir(), 'img');

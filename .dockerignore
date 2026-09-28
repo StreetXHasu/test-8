@@ -2,7 +2,6 @@
 .github
 .phpunit.cache
 var
-vendor
 .env.local
 .env.*.local
 docker/garage/garage.toml

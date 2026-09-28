@@ -20,6 +20,7 @@ final class CompressedImage
             'image/webp' => 'webp',
             'image/png' => 'png',
             'image/jpeg' => 'jpg',
+            default => throw new \InvalidArgumentException('Unsupported mime type: '.$this->mimeType),
         };
     }
 }

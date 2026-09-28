@@ -27,8 +27,13 @@ class ImageService
 
     public function upload(User $user, RawImage $raw): UploadResult
     {
-        $compressed = $this->compressor->compress($raw->contents, $raw->mimeType);
         $hash = hash('sha256', $raw->contents);
+        $existing = $this->findByUserAndHash($user, $hash);
+        if ($existing instanceof Image) {
+            return new UploadResult($existing, true);
+        }
+
+        $compressed = $this->compressor->compress($raw->contents, $raw->mimeType);
 
         return $this->entityManager->wrapInTransaction(function () use ($user, $raw, $compressed, $hash): UploadResult {
             $this->lock($hash);
@@ -89,9 +94,8 @@ class ImageService
         $rows = $query->getQuery()->getResult();
         $next = null;
         if (\count($rows) > $limit) {
-            array_pop($rows);
-            $last = $rows[array_key_last($rows)];
-            $next = $this->encodeCursor($last);
+            $rows = \array_slice($rows, 0, $limit);
+            $next = $this->encodeCursor($rows[$limit - 1]);
         }
 
         return new ImagePage($rows, $next);
@@ -103,9 +107,11 @@ class ImageService
         $blob = $image->getBlob();
 
         return new ImageContent(
-            $this->storage->get($blob->getStorageKey()),
+            $this->storage->getStream($blob->getStorageKey()),
             $blob->getMimeType(),
             $image->getOriginalFilename(),
+            $blob->getSizeBytes(),
+            $blob->getContentHash(),
         );
     }
 
@@ -121,11 +127,12 @@ class ImageService
             $this->entityManager->remove($image);
             $this->entityManager->flush();
 
+            /** @var int|string|false $count */
             $count = $this->entityManager->getConnection()->fetchOne(
                 'UPDATE image_blobs SET reference_count = reference_count - 1 WHERE content_hash = :hash RETURNING reference_count',
                 ['hash' => $hash],
             );
-            if (0 === (int) $count) {
+            if (false !== $count && 0 === (int) $count) {
                 $this->entityManager->remove($blob);
                 $this->entityManager->flush();
                 $this->storage->delete($key);

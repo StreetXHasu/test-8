@@ -16,6 +16,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class AuthController
@@ -26,6 +27,7 @@ final class AuthController
         private readonly EntityManagerInterface $entityManager,
         private readonly UserPasswordHasherInterface $passwords,
         private readonly JwtCodec $jwt,
+        private readonly RateLimiterFactory $authLimiter,
     ) {
     }
 
@@ -46,8 +48,9 @@ final class AuthController
         ),
         responses: [
             new OA\Response(response: 201, description: 'Пользователь создан, выдан JWT'),
-            new OA\Response(response: 409, description: 'Email уже занят'),
-            new OA\Response(response: 422, description: 'Некорректные данные'),
+            new OA\Response(response: 409, description: 'Email уже занят', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 422, description: 'Некорректные данные', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 429, description: 'Слишком много попыток', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
     public function register(Request $request): JsonResponse
@@ -55,6 +58,8 @@ final class AuthController
         $payload = $this->jsonBody->read($request);
         $email = $this->credentials->email($payload);
         $password = $this->credentials->password($payload);
+        $this->consumeAuthLimit($request, $email);
+
         $user = new User($email);
         $user->changePasswordHash($this->passwords->hashPassword($user, $password));
         $this->entityManager->persist($user);
@@ -84,8 +89,9 @@ final class AuthController
         ),
         responses: [
             new OA\Response(response: 200, description: 'JWT'),
-            new OA\Response(response: 401, description: 'Неверный email или пароль'),
-            new OA\Response(response: 422, description: 'Некорректные данные'),
+            new OA\Response(response: 401, description: 'Неверный email или пароль', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 422, description: 'Некорректные данные', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
+            new OA\Response(response: 429, description: 'Слишком много попыток', content: new OA\JsonContent(ref: '#/components/schemas/Error')),
         ],
     )]
     public function login(Request $request): JsonResponse
@@ -93,6 +99,8 @@ final class AuthController
         $payload = $this->jsonBody->read($request);
         $email = $this->credentials->email($payload);
         $password = $this->credentials->password($payload);
+        $this->consumeAuthLimit($request, $email);
+
         $user = $this->entityManager->getRepository(User::class)->findOneBy(['email' => $email]);
         if (!$user instanceof User || !$this->passwords->isPasswordValid($user, $password)) {
             throw new ApiException('Invalid credentials', 401);
@@ -113,5 +121,17 @@ final class AuthController
                 'email' => $user->getEmail(),
             ],
         ];
+    }
+
+    private function consumeAuthLimit(Request $request, string $email): void
+    {
+        $limit = $this->authLimiter->create($request->getClientIp().'|'.$email)->consume();
+        if ($limit->isAccepted()) {
+            return;
+        }
+
+        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
+
+        throw new ApiException('Too many attempts', 429, ['Retry-After' => (string) $retryAfter]);
     }
 }

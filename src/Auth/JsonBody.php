@@ -14,11 +14,12 @@ final class JsonBody
      */
     public function read(Request $request): array
     {
-        $data = json_decode($request->getContent(), true);
-        if (!\is_array($data) || array_is_list($data)) {
+        $decoded = json_decode($request->getContent(), true);
+        if (!\is_array($decoded) || array_is_list($decoded)) {
             throw new ApiException('JSON object is required', 422);
         }
 
-        return $data;
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
     }
 }

@@ -34,3 +34,7 @@ services:
     App\Storage\S3ObjectStorage:
         arguments:
             $bucket: '%env(S3_BUCKET)%'
+
+    App\Controller\AuthController:
+        arguments:
+            $authLimiter: '@limiter.auth'

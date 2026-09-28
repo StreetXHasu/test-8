@@ -1,0 +1,18 @@
+nelmio_api_doc:
+    documentation:
+        info:
+            title: Image API
+            description: Закрытое API загрузки и хранения изображений. PNG и JPEG до 5 МБ, на диске — сжатый WebP, одинаковые файлы не дублируются.
+            version: 1.0.0
+        components:
+            securitySchemes:
+                Bearer:
+                    type: http
+                    scheme: bearer
+                    bearerFormat: JWT
+        security:
+            - Bearer: []
+    areas:
+        path_patterns:
+            - ^/api/(?!doc)
+            - ^/health$

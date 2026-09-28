@@ -1,0 +1,11 @@
+.git
+.github
+.phpunit.cache
+var
+vendor
+.env.local
+.env.*.local
+docker/garage/garage.toml
+docker-compose.override.yml
+*.md
+!README.md

@@ -616,7 +616,8 @@
             "Bearer": {
                 "type": "http",
                 "scheme": "bearer",
-                "bearerFormat": "JWT"
+                "bearerFormat": "JWT",
+                "description": "Значение поля token из POST /api/register или POST /api/login. Заголовок: Authorization: Bearer <token>."
             }
         },
         "schemas": {

@@ -62,6 +62,10 @@ final class OpenApiTest extends ApiTestCase
         self::assertArrayNotHasKey('Content-Disposition', $notModified);
         self::assertSame(false, $spec['components']['schemas']['Error']['additionalProperties']);
 
+        $this->request('GET', '/');
+        $this->last->assertStatus(302);
+        self::assertSame('/api/doc', $this->header('Location'));
+
         $this->request('GET', '/api/doc');
         $this->last->assertStatus(200);
         self::assertStringContainsString('swagger', strtolower($this->responseBody()));

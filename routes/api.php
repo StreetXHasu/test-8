@@ -8,6 +8,8 @@ use App\Http\Controllers\ImageController;
 use App\Http\Controllers\OpenApiController;
 use Illuminate\Support\Facades\Route;
 
+Route::redirect('/', '/api/doc');
+
 Route::get('/health', [HealthController::class, 'live'])->name('health');
 Route::get('/health/ready', [HealthController::class, 'ready'])->name('health.ready');
 

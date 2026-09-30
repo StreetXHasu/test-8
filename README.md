@@ -25,7 +25,7 @@ docker build --target prod -t image-api:prod .
 docker compose ps
 ```
 
-- API: http://localhost:8080
+- Корень http://localhost:8080 открывает Swagger UI
 - Swagger UI: http://localhost:8080/api/doc
 - OpenAPI JSON: http://localhost:8080/api/doc.json
 - Liveness: http://localhost:8080/health
@@ -39,28 +39,38 @@ docker compose down
 
 ## Пример
 
+Токен — поле `token` в ответе регистрации или входа. Его передают заголовком `Authorization: Bearer <token>`. Без этого заголовка закрытые маршруты отвечают `401` и `{"error":"Unauthorized"}`. `photo.png` ниже — любой локальный PNG или JPEG.
+
 ```bash
-curl -s -X POST http://localhost:8080/api/register \
+BASE=http://localhost:8080
+
+TOKEN=$(curl -s -X POST "$BASE/api/register" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password1"}' \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+curl -s -X POST "$BASE/api/login" \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com","password":"password1"}'
 
-curl -s -X POST http://localhost:8080/api/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"user@example.com","password":"password1"}'
-
-curl -s -X POST http://localhost:8080/api/images \
-  -H "Authorization: Bearer ТОКЕН" \
+curl -s -X POST "$BASE/api/images" \
+  -H "Authorization: Bearer $TOKEN" \
   -F "file=@photo.png"
 
-curl -s http://localhost:8080/api/images \
-  -H "Authorization: Bearer ТОКЕН"
+curl -s "$BASE/api/images?limit=20" \
+  -H "Authorization: Bearer $TOKEN"
 
-curl -s -o image.webp http://localhost:8080/api/images/ID \
-  -H "Authorization: Bearer ТОКЕН"
+ID=$(curl -s "$BASE/api/images" -H "Authorization: Bearer $TOKEN" \
+  | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 
-curl -s -X DELETE http://localhost:8080/api/images/ID \
-  -H "Authorization: Bearer ТОКЕН"
+curl -s -o image.webp "$BASE/api/images/$ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -s -o /dev/null -D - -X DELETE "$BASE/api/images/$ID" \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+Повторная регистрация того же email отвечает `409`. Повторная загрузка тех же байтов тем же пользователем отвечает `200` и `"duplicate": true`.
 
 Пароль от 8 до 128 байт. Перед bcrypt считается SHA-256, поэтому пароль длиннее 72 байт не обрезается. Email приводится к нижнему регистру, длиннее 180 байт отклоняется. Файл — только PNG или JPEG, не больше 5 МБ, сторона не больше 8192 px и не больше 16 777 216 пикселей. Чужие изображения не видны: чужой `id` отвечает 404.
 
@@ -100,7 +110,7 @@ docker compose exec app composer phpstan
 - Перед записью нового содержимого файл перекодируется в WebP с качеством 90. Если WebP оказался не меньше оригинала, сохраняется исходный файл. Повторное декодирование на валидации не делается: битый файл отсекает уже компрессор.
 - Одинаковые байты определяются по SHA-256 до сжатия. Если объект уже есть, повтор не трогает компрессор и Garage — добавляется только ссылка пользователя (`image_blobs.reference_count`). Повтор того же пользователя возвращает уже созданную запись. Последнее удаление стирает объект.
 - Новый объект пишется в Garage до коммита (ключ — хеш, повторная запись идемпотентна). В транзакции остаётся учёт ссылок. Файл удаляется из Garage уже после коммита, когда ссылок не осталось: откат базы не сотрёт байты, на которые она ещё ссылается.
-- Скачивание идёт потоком из Garage (`StreamedResponse`), поток закрывается. Ответ несёт `ETag` по content-hash, `304` на `If-None-Match`, `Cache-Control: private`, `Vary: Authorization` и `X-Content-Type-Options: nosniff`.
+- Скачивание идёт потоком из Garage (`StreamedResponse`), поток закрывается. Ответ несёт `ETag` по content-hash, `304` на `If-None-Match`, `Cache-Control: max-age=3600, private`, `Vary: Authorization` и `X-Content-Type-Options: nosniff`.
 - Список отдаётся страницами по курсору `(created_at, id)`, без `OFFSET`, чтобы сотни тысяч файлов в день не тормозили выборку. PHP-FPM не хранит файлы на диске контейнера и может масштабироваться репликами.
 - Повтор одной и той же загрузки сериализуется транзакционной блокировкой PostgreSQL: первые 16 hex-символов SHA-256 приводятся к `bigint` через `substr` и `bit(64)`, без `hashtext`.
 - Регистрация и логин ограничены `RateLimiter`: 5 неудачных попыток в минуту на IP и email. Успех сбрасывает счётчик. При исчерпании — 429 с `Retry-After`.

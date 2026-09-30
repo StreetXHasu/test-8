@@ -1,5 +1,4 @@
 services:
-###> doctrine/doctrine-bundle ###
   database:
     image: postgres:16-alpine
     environment:
@@ -17,7 +16,6 @@ services:
     volumes:
       - database_data:/var/lib/postgresql/data:rw
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-test-database.sql:ro
-###< doctrine/doctrine-bundle ###
 
   garage:
     image: dxflrs/garage:v2.4.0
@@ -34,7 +32,7 @@ services:
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 2s
-      timeout: 5s
+      timeout: 3s
       retries: 30
       start_period: 3s
 
@@ -45,10 +43,16 @@ services:
     env_file:
       - .env.local
     environment:
-      APP_ENV: prod
-      DATABASE_URL: postgresql://app:app@database:5432/app?serverVersion=16&charset=utf8
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8080
+      DB_CONNECTION: pgsql
+      DB_URL: pgsql://app:app@database:5432/app
       S3_ENDPOINT: http://garage:3900
-      DEFAULT_URI: http://localhost:8080
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      LOG_CHANNEL: stderr
     ports:
       - "8080:80"
     depends_on:
@@ -64,8 +68,6 @@ services:
       start_period: 15s
 
 volumes:
-###> doctrine/doctrine-bundle ###
   database_data:
-###< doctrine/doctrine-bundle ###
   garage_meta:
   garage_data:

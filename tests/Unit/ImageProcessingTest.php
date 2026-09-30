@@ -2,15 +2,16 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit;
+namespace Tests\Unit;
 
-use App\Exception\ApiException;
+use App\Exceptions\ApiException;
+use App\Image\CompressedImage;
 use App\Image\FilenameSanitizer;
 use App\Image\GdImageCompressor;
 use App\Image\SmallerImageChooser;
-use App\Model\CompressedImage;
-use App\Tests\Support\SampleImages;
+use App\Image\UploadedImageInspector;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SampleImages;
 
 final class ImageProcessingTest extends TestCase
 {
@@ -46,6 +47,10 @@ final class ImageProcessingTest extends TestCase
         self::assertSame('webp', (new CompressedImage('a', 'image/webp', 1, 1))->extension());
         self::assertSame('png', (new CompressedImage('a', 'image/png', 1, 1))->extension());
         self::assertSame('jpg', (new CompressedImage('a', 'image/jpeg', 1, 1))->extension());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unsupported mime type: image/gif');
+        (new CompressedImage('a', 'image/gif', 1, 1))->extension();
     }
 
     public function testCompressorConvertsAPngAndRejectsGarbage(): void
@@ -67,8 +72,9 @@ final class ImageProcessingTest extends TestCase
 
     public function testInspectorRejectsUnreadableAndUnknownMime(): void
     {
-        $inspector = new \App\Image\UploadedImageInspector(new FilenameSanitizer());
-        $read = new \ReflectionMethod(\App\Image\UploadedImageInspector::class, 'readContents');
+        $inspector = new UploadedImageInspector(new FilenameSanitizer());
+
+        $read = new \ReflectionMethod(UploadedImageInspector::class, 'readContents');
         try {
             $read->invoke($inspector, '/no/such/upload.bin');
             self::fail('Missing file was readable');
@@ -76,22 +82,12 @@ final class ImageProcessingTest extends TestCase
             self::assertSame(400, $exception->statusCode);
         }
 
-        $mime = new \ReflectionMethod(\App\Image\UploadedImageInspector::class, 'detectMime');
+        $mime = new \ReflectionMethod(UploadedImageInspector::class, 'detectMime');
         try {
             $mime->invoke($inspector, '/no/such/upload.bin');
             self::fail('Missing file had a mime type');
         } catch (ApiException $exception) {
             self::assertSame(422, $exception->statusCode);
         }
-    }
-
-    public function testUserIdentifierRejectsEmptyEmail(): void
-    {
-        $user = (new \ReflectionClass(\App\Entity\User::class))->newInstanceWithoutConstructor();
-        $email = new \ReflectionProperty(\App\Entity\User::class, 'email');
-        $email->setValue($user, '');
-
-        $this->expectException(\LogicException::class);
-        $user->getUserIdentifier();
     }
 }

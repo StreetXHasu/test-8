@@ -2,18 +2,25 @@
 
 declare(strict_types=1);
 
-$url = getenv('DATABASE_URL');
+$url = getenv('DB_URL');
 if (!is_string($url) || '' === $url) {
-    fwrite(STDERR, "DATABASE_URL is missing\n");
-    exit(1);
+    $url = getenv('DATABASE_URL');
 }
 
-$parts = parse_url($url);
-$host = $parts['host'] ?? '127.0.0.1';
-$port = (int) ($parts['port'] ?? 5432);
-$database = ltrim((string) ($parts['path'] ?? '/app'), '/');
-$user = rawurldecode((string) ($parts['user'] ?? ''));
-$password = rawurldecode((string) ($parts['pass'] ?? ''));
+if (is_string($url) && '' !== $url) {
+    $parts = parse_url($url);
+    $host = $parts['host'] ?? '127.0.0.1';
+    $port = (int) ($parts['port'] ?? 5432);
+    $database = ltrim((string) ($parts['path'] ?? '/app'), '/');
+    $user = rawurldecode((string) ($parts['user'] ?? 'app'));
+    $password = rawurldecode((string) ($parts['pass'] ?? 'app'));
+} else {
+    $host = (string) (getenv('DB_HOST') ?: '127.0.0.1');
+    $port = (int) (getenv('DB_PORT') ?: 5432);
+    $database = (string) (getenv('DB_DATABASE') ?: 'app');
+    $user = (string) (getenv('DB_USERNAME') ?: 'app');
+    $password = (string) (getenv('DB_PASSWORD') ?: 'app');
+}
 
 for ($attempt = 0; $attempt < 40; ++$attempt) {
     try {

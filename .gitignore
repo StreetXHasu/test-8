@@ -1,20 +1,27 @@
-
-###> symfony/framework-bundle ###
-/.env.local
-/.env.local.php
-/.env.*.local
+*.log
+.DS_Store
+.env
+.env.backup
+.env.local
+.env.production
+.phpactor.json
+.phpunit.result.cache
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+/.vscode
+/.zed
+/auth.json
+/bootstrap/cache/*.php
 /docker/garage/garage.toml
-/config/secrets/prod/prod.decrypt.private.php
-/public/bundles/
-/var/
-/vendor/
-###< symfony/framework-bundle ###
-
-###> phpunit/phpunit ###
-/phpunit.xml
-/.phpunit.cache/
-###< phpunit/phpunit ###
-
-###> phpstan/phpstan ###
-phpstan.neon
-###< phpstan/phpstan ###
+/node_modules
+/public/build
+/public/storage
+/storage/*.key
+/storage/pail
+/var
+/vendor
+_ide_helper.php
+Thumbs.db

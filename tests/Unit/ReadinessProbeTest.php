@@ -2,20 +2,19 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit;
+namespace Tests\Unit;
 
 use App\Health\ReadinessProbe;
 use App\Storage\S3ObjectStorage;
-use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Result;
+use Illuminate\Database\ConnectionInterface;
 use PHPUnit\Framework\TestCase;
 
 final class ReadinessProbeTest extends TestCase
 {
     public function testReportsOkWhenDependenciesAnswer(): void
     {
-        $connection = $this->createStub(Connection::class);
-        $connection->method('executeQuery')->willReturn($this->createStub(Result::class));
+        $connection = $this->createStub(ConnectionInterface::class);
+        $connection->method('select')->willReturn([]);
         $storage = $this->createStub(S3ObjectStorage::class);
 
         $probe = new ReadinessProbe($connection, $storage);
@@ -27,8 +26,8 @@ final class ReadinessProbeTest extends TestCase
 
     public function testReportsFailWhenADependencyThrows(): void
     {
-        $connection = $this->createStub(Connection::class);
-        $connection->method('executeQuery')->willThrowException(new \RuntimeException('down'));
+        $connection = $this->createStub(ConnectionInterface::class);
+        $connection->method('select')->willThrowException(new \RuntimeException('down'));
         $storage = $this->createStub(S3ObjectStorage::class);
         $storage->method('headBucket')->willThrowException(new \RuntimeException('missing'));
 

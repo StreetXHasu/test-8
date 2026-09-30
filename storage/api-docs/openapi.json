@@ -1,0 +1,784 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Image API",
+        "description": "Закрытое API для своих изображений: JWT, дедупликация по SHA-256, хранение байтов в Garage (S3). Ошибка — объект {\"error\": \"...\"} без других полей. Успешный JSON описан схемами ниже. Скачивание отдаёт тело файла, не JSON.",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/"
+        }
+    ],
+    "security": [
+        {
+            "Bearer": []
+        }
+    ],
+    "paths": {
+        "/health": {
+            "get": {
+                "tags": ["Health"],
+                "summary": "Liveness: процесс отвечает",
+                "operationId": "health",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "Сервис отвечает",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {
+                                            "type": "string",
+                                            "example": "ok"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health/ready": {
+            "get": {
+                "tags": ["Health"],
+                "summary": "Readiness: база и хранилище доступны",
+                "operationId": "health_ready",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "Зависимости доступны",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Readiness"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Зависимость недоступна",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Readiness"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/register": {
+            "post": {
+                "tags": ["Auth"],
+                "summary": "Регистрация",
+                "operationId": "api_register",
+                "security": [],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Credentials"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Пользователь создан, выдан JWT",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Token"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Email уже занят. Тело: {\"error\": \"Email is already registered\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Email is already registered"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Некорректное тело. Возможные error: JSON object is required, Email is required, Email is invalid, Password is required, Password must be between 8 and 128 characters.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Email is invalid"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Пять неудачных попыток на IP и email за минуту. Успешная регистрация сбрасывает счётчик. Тело: {\"error\": \"Too many attempts\"}.",
+                        "headers": {
+                            "Retry-After": {
+                                "$ref": "#/components/headers/RetryAfter"
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Too many attempts"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/login": {
+            "post": {
+                "tags": ["Auth"],
+                "summary": "Вход",
+                "operationId": "api_login",
+                "security": [],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Credentials"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "JWT",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Token"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Неверный email или пароль. Тело: {\"error\": \"Invalid credentials\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Invalid credentials"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Некорректное тело. Возможные error: JSON object is required, Email is required, Email is invalid, Password is required, Password must be between 8 and 128 characters.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Password is required"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Пять неудачных попыток на IP и email за минуту. Успешный вход сбрасывает счётчик. Тело: {\"error\": \"Too many attempts\"}.",
+                        "headers": {
+                            "Retry-After": {
+                                "$ref": "#/components/headers/RetryAfter"
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Too many attempts"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/images": {
+            "post": {
+                "tags": ["Images"],
+                "summary": "Загрузить PNG или JPEG",
+                "operationId": "api_images_upload",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["file"],
+                                "properties": {
+                                    "file": {
+                                        "description": "PNG или JPEG, не больше 5 МБ",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Файл сохранён. duplicate равен false.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UploadedImage"
+                                }
+                            }
+                        }
+                    },
+                    "200": {
+                        "description": "Этот пользователь уже загружал такие байты. duplicate равен true, id — прежней записи.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UploadedImage"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Временный файл загрузки нельзя прочитать. Тело: {\"error\": \"Upload failed\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Upload failed"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Нет или неверный токен. Тело: {\"error\": \"Unauthorized\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Unauthorized"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Файл больше 5 МБ или больше лимита PHP. Тело: {\"error\": \"File is larger than 5 MB\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "File is larger than 5 MB"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Файл отклонён. Возможные error: File is required, File is empty, Upload failed, Only PNG and JPEG images are allowed, Image cannot be decoded, Image dimensions are too large.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Only PNG and JPEG images are allowed"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": ["Images"],
+                "summary": "Список своих изображений",
+                "operationId": "api_images_list",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "От 1 до 100, по умолчанию 20",
+                        "schema": {
+                            "type": "integer",
+                            "default": 20
+                        }
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "description": "Курсор следующей страницы",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Страница списка",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImagePage"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Нет или неверный токен. Тело: {\"error\": \"Unauthorized\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Unauthorized"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Некорректные query-параметры. Возможные error: Limit is invalid, Limit must not exceed 100, Cursor is invalid.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Limit is invalid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/images/{id}": {
+            "get": {
+                "tags": ["Images"],
+                "summary": "Скачать своё изображение",
+                "operationId": "api_images_show",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "If-None-Match",
+                        "in": "header",
+                        "description": "ETag предыдущего ответа",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Тело файла. Content-Type — image/webp, image/jpeg или image/png.",
+                        "headers": {
+                            "ETag": {
+                                "$ref": "#/components/headers/ETag"
+                            },
+                            "Cache-Control": {
+                                "$ref": "#/components/headers/CacheControl"
+                            },
+                            "Vary": {
+                                "$ref": "#/components/headers/VaryAuthorization"
+                            },
+                            "Content-Disposition": {
+                                "$ref": "#/components/headers/ContentDisposition"
+                            },
+                            "Content-Length": {
+                                "description": "Размер тела в байтах, равен sizeBytes",
+                                "schema": {
+                                    "type": "integer"
+                                }
+                            },
+                            "X-Content-Type-Options": {
+                                "$ref": "#/components/headers/Nosniff"
+                            }
+                        },
+                        "content": {
+                            "image/webp": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "image/jpeg": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "image/png": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "304": {
+                        "description": "Тело не изменилось: If-None-Match совпал с ETag. Тела нет.",
+                        "headers": {
+                            "ETag": {
+                                "$ref": "#/components/headers/ETag"
+                            },
+                            "Cache-Control": {
+                                "$ref": "#/components/headers/CacheControl"
+                            },
+                            "Vary": {
+                                "$ref": "#/components/headers/VaryAuthorization"
+                            },
+                            "X-Content-Type-Options": {
+                                "$ref": "#/components/headers/Nosniff"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Нет или неверный токен. Тело: {\"error\": \"Unauthorized\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Unauthorized"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Чужой или отсутствующий id. Тело: {\"error\": \"Image not found\"}. Невалидный UUID не попадает в маршрут: 404 и {\"error\": \"The route api/images/{id} could not be found.\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Image not found"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": ["Images"],
+                "summary": "Удалить своё изображение",
+                "operationId": "api_images_delete",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Удалено"
+                    },
+                    "401": {
+                        "description": "Нет или неверный токен. Тело: {\"error\": \"Unauthorized\"}.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Unauthorized"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Чужой или отсутствующий id. Тело: {\"error\": \"Image not found\"}. Невалидный UUID не попадает в маршрут: 404 и текст о ненайденном маршруте.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                },
+                                "example": {
+                                    "error": "Image not found"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/doc.json": {
+            "get": {
+                "tags": ["Docs"],
+                "summary": "Спецификация OpenAPI",
+                "operationId": "api_doc_json",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "Документ OpenAPI",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "headers": {
+            "RetryAfter": {
+                "description": "Секунды до следующей попытки, не меньше 1",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 60
+                }
+            },
+            "ETag": {
+                "description": "SHA-256 исходных байтов в двойных кавычках",
+                "schema": {
+                    "type": "string",
+                    "example": "\"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\""
+                }
+            },
+            "CacheControl": {
+                "description": "Ответ приватный и кешируется один час",
+                "schema": {
+                    "type": "string",
+                    "example": "max-age=3600, private"
+                }
+            },
+            "VaryAuthorization": {
+                "description": "Кеш разделяется по токену",
+                "schema": {
+                    "type": "string",
+                    "example": "Authorization"
+                }
+            },
+            "ContentDisposition": {
+                "description": "inline. Безопасное имя — токен без кавычек, например inline; filename=my_photo.png",
+                "schema": {
+                    "type": "string",
+                    "example": "inline; filename=my_photo.png"
+                }
+            },
+            "Nosniff": {
+                "description": "Браузеру запрещено угадывать тип",
+                "schema": {
+                    "type": "string",
+                    "example": "nosniff"
+                }
+            }
+        },
+        "securitySchemes": {
+            "Bearer": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        },
+        "schemas": {
+            "Error": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["error"],
+                "description": "Единственный формат ошибки. Поле error — английская фраза из обработчика, без вложенных errors и без кода.",
+                "properties": {
+                    "error": {
+                        "type": "string",
+                        "example": "Image not found"
+                    }
+                }
+            },
+            "Credentials": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "user@example.com"
+                    },
+                    "password": {
+                        "type": "string",
+                        "minLength": 8,
+                        "maxLength": 128,
+                        "example": "password1"
+                    }
+                }
+            },
+            "Token": {
+                "type": "object",
+                "required": ["token", "user"],
+                "properties": {
+                    "token": {
+                        "type": "string"
+                    },
+                    "user": {
+                        "type": "object",
+                        "required": ["id", "email"],
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "format": "uuid"
+                            },
+                            "email": {
+                                "type": "string",
+                                "format": "email"
+                            }
+                        }
+                    }
+                }
+            },
+            "Image": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "originalFilename",
+                    "mimeType",
+                    "sizeBytes",
+                    "width",
+                    "height",
+                    "contentHash",
+                    "createdAt"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "originalFilename": {
+                        "type": "string",
+                        "example": "photo.png"
+                    },
+                    "mimeType": {
+                        "type": "string",
+                        "example": "image/webp"
+                    },
+                    "sizeBytes": {
+                        "type": "integer",
+                        "example": 2048
+                    },
+                    "width": {
+                        "type": "integer",
+                        "example": 128
+                    },
+                    "height": {
+                        "type": "integer",
+                        "example": 128
+                    },
+                    "contentHash": {
+                        "type": "string",
+                        "description": "SHA-256 исходных байтов",
+                        "example": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "UploadedImage": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/Image"
+                    },
+                    {
+                        "type": "object",
+                        "required": ["duplicate"],
+                        "properties": {
+                            "duplicate": {
+                                "type": "boolean",
+                                "description": "true, если этот пользователь уже загружал такие байты. В списке этого поля нет."
+                            }
+                        }
+                    }
+                ]
+            },
+            "ImagePage": {
+                "type": "object",
+                "required": ["items", "nextCursor"],
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "Свои изображения без поля duplicate",
+                        "items": {
+                            "$ref": "#/components/schemas/Image"
+                        }
+                    },
+                    "nextCursor": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Курсор следующей страницы или null"
+                    }
+                }
+            },
+            "Readiness": {
+                "type": "object",
+                "required": ["status", "checks"],
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["ok", "unavailable"]
+                    },
+                    "checks": {
+                        "type": "object",
+                        "required": ["database", "storage"],
+                        "properties": {
+                            "database": {
+                                "type": "string",
+                                "enum": ["ok", "fail"]
+                            },
+                            "storage": {
+                                "type": "string",
+                                "enum": ["ok", "fail"]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
